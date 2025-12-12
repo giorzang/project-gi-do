@@ -1,0 +1,251 @@
+const Match = require('../models/Match');
+const socketManager = require('../socket/socketManager');
+const pool = require('../config/database');
+const fs = require('fs').promises;
+const path = require('path');
+
+exports.handleMatchzyEvent = async (req, res) => {
+    const event = req.body;
+    console.log(`📡 MatchZy Event: ${event.event} (Match ID: ${event.matchid})`);
+
+    const io = socketManager.getIo();
+
+    try {
+        switch (event.event) {
+            case 'round_end':
+                // DEBUG: Write event to file
+                try {
+                    await fs.writeFile(
+                        path.join(__dirname, '../samples_event/round_end_debug.json'), 
+                        JSON.stringify(event, null, 4)
+                    );
+                } catch (err) { console.error('❌ Failed to save round_end debug file:', err); }
+
+                const currentMapNumber = parseInt(event.map_number) + 1;
+                // Cập nhật score cho bảng Web (match_maps) - Map đang LIVE gần nhất
+                // ĐỒNG THỜI LƯU LUÔN EVENT JSON VÀO CỘT last_event_data
+                await pool.execute(
+                    `UPDATE match_maps 
+                     SET last_event_data = ?
+                     WHERE match_id = ? AND map_number = ? AND status = 'LIVE' ORDER BY start_time DESC LIMIT 1`,
+                    [JSON.stringify(event), event.matchid, currentMapNumber]
+                );
+
+                // --- PROCESS PLAYER STATS DIRECTLY FROM EVENT ---
+                try {
+                    const processPlayers = (teamPlayers, teamName, teamSide) => {
+                        if (!teamPlayers || !Array.isArray(teamPlayers)) return [];
+                        return teamPlayers.map(p => ({
+                            steamid64: p.steamid,
+                            name: p.name,
+                            team: teamName,
+                            side: teamSide,
+                            kills: p.stats.kills,
+                            deaths: p.stats.deaths,
+                            assists: p.stats.assists,
+                            flash_assists: p.stats.flash_assists,
+                            team_kills: p.stats.team_kills,
+                            suicides: p.stats.suicides,
+                            damage: p.stats.damage,
+                            utility_damage: p.stats.utility_damage,
+                            enemies_flashed: p.stats.enemies_flashed,
+                            friendlies_flashed: p.stats.friendlies_flashed,
+                            knife_kills: p.stats.knife_kills,
+                            headshot_kills: p.stats.headshot_kills,
+                            head_shot_kills: p.stats.headshot_kills, // Alias for frontend
+                            rounds_played: p.stats.rounds_played,
+                            bomb_defuses: p.stats.bomb_defuses,
+                            bomb_plants: p.stats.bomb_plants,
+                            '1k': p.stats['1k'],
+                            '2k': p.stats['2k'],
+                            '3k': p.stats['3k'],
+                            '4k': p.stats['4k'],
+                            '5k': p.stats['5k'],
+                            enemy2ks: p.stats['2k'], // Alias for frontend
+                            enemy3ks: p.stats['3k'], // Alias for frontend
+                            enemy4ks: p.stats['4k'], // Alias for frontend
+                            enemy5ks: p.stats['5k'], // Alias for frontend
+                            '1v1': p.stats['1v1'],
+                            '1v2': p.stats['1v2'],
+                            '1v3': p.stats['1v3'],
+                            '1v4': p.stats['1v4'],
+                            '1v5': p.stats['1v5'],
+                            v1: p.stats['1v1'], // Alias
+                            v2: p.stats['1v2'], // Alias
+                            v3: p.stats['1v3'], // Alias
+                            v4: p.stats['1v4'], // Alias
+                            v5: p.stats['1v5'], // Alias
+                            first_kills_t: p.stats.first_kills_t,
+                            first_kills_ct: p.stats.first_kills_ct,
+                            first_deaths_t: p.stats.first_deaths_t,
+                            first_deaths_ct: p.stats.first_deaths_ct,
+                            trade_kills: p.stats.trade_kills,
+                            kast: p.stats.kast,
+                            score: p.stats.score,
+                            mvp: p.stats.mvp
+                        }));
+                    };
+
+                    const team1Stats = processPlayers(event.team1.players, event.team1.name, event.team1.side);
+                    const team2Stats = processPlayers(event.team2.players, event.team2.name, event.team2.side);
+                    const allPlayerStats = [...team1Stats, ...team2Stats];
+
+                    if (allPlayerStats.length > 0) {
+                        io.to(`match_${event.matchid}`).emit('live_stats', {
+                            matchId: event.matchid,
+                            map_name: currentMapNumber,
+                            player_stats: allPlayerStats
+                        });
+                        console.log(`✅ Round End: Emitted ${allPlayerStats.length} player stats from event data.`);
+                    }
+                } catch (err) {
+                    console.error("❌ Failed to process stats from round_end event:", err.message);
+                }
+                // -----------------------------------------------------
+
+                io.to(`match_${event.matchid}`).emit('round_end', {
+                    matchId: event.matchid,
+                    map_name: currentMapNumber,
+                    team1_score: event.team1.score,
+                    team2_score: event.team2.score
+                });
+                break;
+
+            // --- 5. MAP END ---
+            case 'map_result':
+                const mapEndNumber = parseInt(event.map_number) + 1;
+                
+                // Determine winner name from nested object (event.winner.team is "team1" or "team2")
+                const winnerSide = event.winner ? event.winner.team : null;
+                const winnerName = winnerSide === 'team1' ? event.team1.name : (winnerSide === 'team2' ? event.team2.name : 'Unknown');
+
+                // --- LOGIC FIX: MatchZy map_result might have empty players. Preserve stats from previous round_end ---
+                let eventToSave = { ...event }; // Shallow copy
+                const t1Players = eventToSave.team1?.players;
+                const t2Players = eventToSave.team2?.players;
+
+                if ((!t1Players || t1Players.length === 0) || (!t2Players || t2Players.length === 0)) {
+                    try {
+                        // Get current last_event_data (which should be the last round_end)
+                        const [rows] = await pool.execute(
+                            `SELECT last_event_data FROM match_maps WHERE match_id = ? AND map_number = ?`,
+                            [event.matchid, mapEndNumber]
+                        );
+
+                        if (rows.length > 0 && rows[0].last_event_data) {
+                            const prevEvent = (typeof rows[0].last_event_data === 'string') 
+                                            ? JSON.parse(rows[0].last_event_data) 
+                                            : rows[0].last_event_data;
+                            
+                            // Inject players if missing in current event but present in previous
+                            if ((!t1Players || t1Players.length === 0) && prevEvent.team1?.players?.length > 0) {
+                                if (!eventToSave.team1) eventToSave.team1 = {};
+                                eventToSave.team1.players = prevEvent.team1.players;
+                            }
+                            if ((!t2Players || t2Players.length === 0) && prevEvent.team2?.players?.length > 0) {
+                                if (!eventToSave.team2) eventToSave.team2 = {};
+                                eventToSave.team2.players = prevEvent.team2.players;
+                            }
+                            console.log(`⚠️ map_result had empty players. Injected stats from previous event.`);
+                        }
+                    } catch (fetchErr) {
+                        console.error("Failed to fetch previous event data to fix map_result:", fetchErr);
+                    }
+                }
+                // ---------------------------------------------------------------------------------------------------
+
+                // Cập nhật Web (match_maps) - Set map hiện tại thành FINISHED
+                await pool.execute(
+                    `UPDATE match_maps 
+                     SET status = 'FINISHED', end_time = NOW(), last_event_data = ?
+                     WHERE match_id = ? AND map_number = ?`,
+                    [JSON.stringify(eventToSave), event.matchid, mapEndNumber]
+                );
+
+                // --- KIỂM TRA XEM SERIES ĐÃ KẾT THÚC CHƯA TRƯỚC KHI BẬT MAP MỚI ---
+                // 1. Lấy series_type
+                const [matchRows] = await pool.execute('SELECT series_type FROM matches WHERE id = ?', [event.matchid]);
+                if (matchRows.length > 0) {
+                    const seriesType = matchRows[0].series_type;
+                    
+                    // 2. Tính lại Series Score hiện tại (Cộng thêm map vừa win)
+                    // Lưu ý: event.teamX.series_score thường là score TRƯỚC khi cộng map này (tùy version MatchZy, nhưng an toàn là tự cộng)
+                    // Nếu MatchZy đã cộng rồi thì logic này có thể thừa, nhưng để chắc chắn ta dùng logic đếm.
+                    // Tuy nhiên, đơn giản nhất: Nếu thắng BO3 cần 2 win. BO5 cần 3 win.
+                    
+                    let t1Wins = parseInt(event.team1.series_score);
+                    let t2Wins = parseInt(event.team2.series_score);
+
+                    // event.teamX.series_score đã là điểm đúng sau khi cộng map này, không cần cộng thêm.
+
+                    let winsNeeded = 1; // BO1
+                    if (seriesType === 'BO3') winsNeeded = 2;
+                    if (seriesType === 'BO5') winsNeeded = 3;
+
+                    const isSeriesOver = (t1Wins >= winsNeeded || t2Wins >= winsNeeded);
+
+                    if (!isSeriesOver) {
+                        // Chỉ bật map tiếp theo nếu chưa ai thắng series
+                        const [nextMaps] = await pool.execute(
+                            `SELECT map_number FROM match_maps 
+                             WHERE match_id = ? AND status = 'PENDING' AND map_number > ? 
+                             ORDER BY map_number ASC LIMIT 1`,
+                            [event.matchid, mapEndNumber]
+                        );
+
+                        if (nextMaps.length > 0) {
+                            const nextMapNum = nextMaps[0].map_number;
+                            await pool.execute(
+                                `UPDATE match_maps SET status = 'LIVE' WHERE match_id = ? AND map_number = ?`,
+                                [event.matchid, nextMapNum]
+                            );
+                            console.log(`🔄 Switching to Next Map: ${nextMapNum} (LIVE)`);
+                        }
+                    } else {
+                        console.log(`🏁 Series finished (Score: ${t1Wins}-${t2Wins}). Not starting next map.`);
+                    }
+                }
+                // ------------------------------------------------
+
+                io.to(`match_${event.matchid}`).emit('map_end', {
+                    matchId: event.matchid,
+                    map_name: mapEndNumber,
+                    winner: winnerName
+                });
+                console.log(`Map ${mapEndNumber} FINISHED. Winner: ${winnerName}`);
+                break;
+
+            // --- 6. MATCH END (SERIES OVER) ---
+            case 'series_end':
+                // DEBUG: Write event to file
+                try {
+                    await fs.writeFile(
+                        path.join(__dirname, '../samples_event/series_end_debug.json'), 
+                        JSON.stringify(event, null, 4)
+                    );
+                } catch (err) { console.error('❌ Failed to save series_end debug file:', err); }
+
+                // Get winner team (team1 or team2)
+                const seriesWinner = event.winner ? event.winner.team : null;
+
+                // Cập nhật trạng thái trận đấu chính sang FINISHED
+                // Reset is_paused về 0 luôn cho chắc
+                const sqlUpdateMatch = `UPDATE matches SET status = 'FINISHED', winner_team = ? WHERE id = ?`;
+                await pool.execute(sqlUpdateMatch, [seriesWinner, event.matchid]);
+
+                io.to(`match_${event.matchid}`).emit('match_end', {
+                    matchId: event.matchid,
+                    winner: seriesWinner
+                });
+                console.log(`Series ${event.matchid} ENDED. Winner: ${seriesWinner}`);
+                break;
+
+            default:
+                break;
+        }
+        res.status(200).send('Event received');
+    } catch (error) {
+        console.error('Error handling MatchZy event:', error);
+        res.status(500).send('Error processing event');
+    }
+};

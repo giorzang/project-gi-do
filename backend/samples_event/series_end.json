@@ -1,0 +1,11 @@
+{
+    "event": "series_end",
+    "matchid": 14272,
+    "team1_series_score": 2,
+    "team2_series_score": 0,
+    "winner": {
+        "side": "ct",
+        "team": "team1"
+    },
+    "time_until_restore": 45
+}
