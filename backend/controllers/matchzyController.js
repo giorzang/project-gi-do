@@ -3,6 +3,7 @@ const socketManager = require('../socket/socketManager');
 const pool = require('../config/database');
 const fs = require('fs').promises;
 const path = require('path');
+const { processMatchzyStats } = require('../utils/matchzy');
 
 exports.handleMatchzyEvent = async (req, res) => {
     const event = req.body;
@@ -13,14 +14,6 @@ exports.handleMatchzyEvent = async (req, res) => {
     try {
         switch (event.event) {
             case 'round_end':
-                // DEBUG: Write event to file
-                try {
-                    await fs.writeFile(
-                        path.join(__dirname, '../samples_event/round_end_debug.json'), 
-                        JSON.stringify(event, null, 4)
-                    );
-                } catch (err) { console.error('❌ Failed to save round_end debug file:', err); }
-
                 const currentMapNumber = parseInt(event.map_number) + 1;
                 // Cập nhật score cho bảng Web (match_maps) - Map đang LIVE gần nhất
                 // ĐỒNG THỜI LƯU LUÔN EVENT JSON VÀO CỘT last_event_data
@@ -33,61 +26,8 @@ exports.handleMatchzyEvent = async (req, res) => {
 
                 // --- PROCESS PLAYER STATS DIRECTLY FROM EVENT ---
                 try {
-                    const processPlayers = (teamPlayers, teamName, teamSide) => {
-                        if (!teamPlayers || !Array.isArray(teamPlayers)) return [];
-                        return teamPlayers.map(p => ({
-                            steamid64: p.steamid,
-                            name: p.name,
-                            team: teamName,
-                            side: teamSide,
-                            kills: p.stats.kills,
-                            deaths: p.stats.deaths,
-                            assists: p.stats.assists,
-                            flash_assists: p.stats.flash_assists,
-                            team_kills: p.stats.team_kills,
-                            suicides: p.stats.suicides,
-                            damage: p.stats.damage,
-                            utility_damage: p.stats.utility_damage,
-                            enemies_flashed: p.stats.enemies_flashed,
-                            friendlies_flashed: p.stats.friendlies_flashed,
-                            knife_kills: p.stats.knife_kills,
-                            headshot_kills: p.stats.headshot_kills,
-                            head_shot_kills: p.stats.headshot_kills, // Alias for frontend
-                            rounds_played: p.stats.rounds_played,
-                            bomb_defuses: p.stats.bomb_defuses,
-                            bomb_plants: p.stats.bomb_plants,
-                            '1k': p.stats['1k'],
-                            '2k': p.stats['2k'],
-                            '3k': p.stats['3k'],
-                            '4k': p.stats['4k'],
-                            '5k': p.stats['5k'],
-                            enemy2ks: p.stats['2k'], // Alias for frontend
-                            enemy3ks: p.stats['3k'], // Alias for frontend
-                            enemy4ks: p.stats['4k'], // Alias for frontend
-                            enemy5ks: p.stats['5k'], // Alias for frontend
-                            '1v1': p.stats['1v1'],
-                            '1v2': p.stats['1v2'],
-                            '1v3': p.stats['1v3'],
-                            '1v4': p.stats['1v4'],
-                            '1v5': p.stats['1v5'],
-                            v1: p.stats['1v1'], // Alias
-                            v2: p.stats['1v2'], // Alias
-                            v3: p.stats['1v3'], // Alias
-                            v4: p.stats['1v4'], // Alias
-                            v5: p.stats['1v5'], // Alias
-                            first_kills_t: p.stats.first_kills_t,
-                            first_kills_ct: p.stats.first_kills_ct,
-                            first_deaths_t: p.stats.first_deaths_t,
-                            first_deaths_ct: p.stats.first_deaths_ct,
-                            trade_kills: p.stats.trade_kills,
-                            kast: p.stats.kast,
-                            score: p.stats.score,
-                            mvp: p.stats.mvp
-                        }));
-                    };
-
-                    const team1Stats = processPlayers(event.team1.players, event.team1.name, event.team1.side);
-                    const team2Stats = processPlayers(event.team2.players, event.team2.name, event.team2.side);
+                    const team1Stats = processMatchzyStats(event.team1.players, event.team1.name, event.team1.side);
+                    const team2Stats = processMatchzyStats(event.team2.players, event.team2.name, event.team2.side);
                     const allPlayerStats = [...team1Stats, ...team2Stats];
 
                     if (allPlayerStats.length > 0) {
@@ -217,14 +157,6 @@ exports.handleMatchzyEvent = async (req, res) => {
 
             // --- 6. MATCH END (SERIES OVER) ---
             case 'series_end':
-                // DEBUG: Write event to file
-                try {
-                    await fs.writeFile(
-                        path.join(__dirname, '../samples_event/series_end_debug.json'), 
-                        JSON.stringify(event, null, 4)
-                    );
-                } catch (err) { console.error('❌ Failed to save series_end debug file:', err); }
-
                 // Get winner team (team1 or team2)
                 const seriesWinner = event.winner ? event.winner.team : null;
 

@@ -69,7 +69,7 @@ exports.generateMatchzyJSON = (match, participants, vetoLog, finalMap) => {
         // players_per_team: 5,
         // min_players_to_ready: 1, // Để test thì để 1, thực tế nên là 5
         cvars: {
-            "matchzy_remote_log_url": `http://${process.env.LOCAL_IP}:3000/api/matchzy/event`,
+            "matchzy_remote_log_url": `http://127.0.0.1:3000/api/matchzy/event`,
             //     "get5_check_auths": "1", // Bắt buộc check steamid
             //     "mp_overtime_enable": "1"
         }
@@ -80,8 +80,7 @@ exports.generateMatchzyJSON = (match, participants, vetoLog, finalMap) => {
 exports.sendRconCommand = async (serverInfo, command) => {
     try {
         const rcon = new Rcon({
-            // host: serverInfo.ip,
-            host: process.env.LOCAL_IP,
+            host: serverInfo.ip,
             port: serverInfo.port,
             password: serverInfo.rcon_password
         });
@@ -99,4 +98,58 @@ exports.sendRconCommand = async (serverInfo, command) => {
         console.error("❌ RCON Error:", error.message);
         throw error;
     }
+};
+
+// 3. Helper xử lý stats từ Matchzy Event (Dùng chung cho cả Socket và API lấy lại)
+exports.processMatchzyStats = (teamPlayers, teamName, teamSide) => {
+    if (!teamPlayers || !Array.isArray(teamPlayers)) return [];
+    return teamPlayers.map(p => ({
+        steamid64: p.steamid,
+        name: p.name,
+        team: teamName,
+        side: teamSide,
+        kills: p.stats.kills,
+        deaths: p.stats.deaths,
+        assists: p.stats.assists,
+        flash_assists: p.stats.flash_assists,
+        team_kills: p.stats.team_kills,
+        suicides: p.stats.suicides,
+        damage: p.stats.damage,
+        utility_damage: p.stats.utility_damage,
+        enemies_flashed: p.stats.enemies_flashed,
+        friendlies_flashed: p.stats.friendlies_flashed,
+        knife_kills: p.stats.knife_kills,
+        headshot_kills: p.stats.headshot_kills,
+        head_shot_kills: p.stats.headshot_kills, // Alias
+        rounds_played: p.stats.rounds_played,
+        bomb_defuses: p.stats.bomb_defuses,
+        bomb_plants: p.stats.bomb_plants,
+        '1k': p.stats['1k'],
+        '2k': p.stats['2k'],
+        '3k': p.stats['3k'],
+        '4k': p.stats['4k'],
+        '5k': p.stats['5k'],
+        enemy2ks: p.stats['2k'],
+        enemy3ks: p.stats['3k'],
+        enemy4ks: p.stats['4k'],
+        enemy5ks: p.stats['5k'],
+        '1v1': p.stats['1v1'],
+        '1v2': p.stats['1v2'],
+        '1v3': p.stats['1v3'],
+        '1v4': p.stats['1v4'],
+        '1v5': p.stats['1v5'],
+        v1: p.stats['1v1'],
+        v2: p.stats['1v2'],
+        v3: p.stats['1v3'],
+        v4: p.stats['1v4'],
+        v5: p.stats['1v5'],
+        first_kills_t: p.stats.first_kills_t,
+        first_kills_ct: p.stats.first_kills_ct,
+        first_deaths_t: p.stats.first_deaths_t,
+        first_deaths_ct: p.stats.first_deaths_ct,
+        trade_kills: p.stats.trade_kills,
+        kast: p.stats.kast,
+        score: p.stats.score,
+        mvp: p.stats.mvp
+    }));
 };

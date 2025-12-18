@@ -4,7 +4,7 @@ const MatchParticipant = require('../models/MatchParticipant');
 const Map = require('../models/Map');
 const pool = require('../config/database');
 const { getIo } = require('../socket/socketManager');
-const { generateMatchzyJSON, sendRconCommand } = require('../utils/matchzy');
+const { generateMatchzyJSON, sendRconCommand, processMatchzyStats } = require('../utils/matchzy');
 const discord = require('../utils/discord');
 
 // API: Tạo Match mới
@@ -25,7 +25,7 @@ exports.createMatch = async (req, res) => {
         // Mặc định
         const vetoEnabled = (is_veto_enabled !== undefined) ? (is_veto_enabled ? 1 : 0) : 1;
         const captainMode = (is_captain_mode !== undefined) ? (is_captain_mode ? 1 : 0) : 0;
-        
+
         let finalMapResult = map_result;
         let finalPreSelectedMaps = pre_selected_maps || [];
 
@@ -38,7 +38,7 @@ exports.createMatch = async (req, res) => {
 
             const requiredMaps = series_type === 'BO1' ? 1 : (series_type === 'BO3' ? 3 : 5);
             if (finalPreSelectedMaps.length !== requiredMaps) {
-                 return res.status(400).json({ message: `Vui lòng chọn đúng ${requiredMaps} map cho thể thức ${series_type}` });
+                return res.status(400).json({ message: `Vui lòng chọn đúng ${requiredMaps} map cho thể thức ${series_type}` });
             }
             finalMapResult = finalPreSelectedMaps[0];
         } else {
@@ -46,10 +46,10 @@ exports.createMatch = async (req, res) => {
             finalPreSelectedMaps = [];
         }
 
-        const matchId = await Match.create({ 
-            display_name, user_id, server_id, team1_name, team2_name, series_type, 
-            is_veto_enabled: vetoEnabled, 
-            is_captain_mode: captainMode, 
+        const matchId = await Match.create({
+            display_name, user_id, server_id, team1_name, team2_name, series_type,
+            is_veto_enabled: vetoEnabled,
+            is_captain_mode: captainMode,
             map_result: finalMapResult,
             pre_selected_maps: finalPreSelectedMaps
         });
@@ -197,18 +197,18 @@ exports.setCaptains = async (req, res) => {
         }
 
         await Match.updateCaptains(matchId, captain1Id, captain2Id);
-        
+
         // Move captains to their teams
         await MatchParticipant.upsert(matchId, captain1Id, 'TEAM1');
         await MatchParticipant.upsert(matchId, captain2Id, 'TEAM2');
 
         const newList = await MatchParticipant.findByMatchId(matchId);
-        
+
         getIo().to(`match_${matchId}`).emit('participants_update', newList);
-        getIo().to(`match_${matchId}`).emit('veto_update', { 
-            status: 'PICKING', 
-            captain1_id: captain1Id, 
-            captain2_id: captain2Id 
+        getIo().to(`match_${matchId}`).emit('veto_update', {
+            status: 'PICKING',
+            captain1_id: captain1Id,
+            captain2_id: captain2Id
         });
 
         res.json({ message: "Đã chọn Captain, bắt đầu Pick người!" });
@@ -255,8 +255,8 @@ exports.pickPlayer = async (req, res) => {
         const newCountT2 = myTeam === 'TEAM2' ? countT2 + 1 : countT2;
 
         if (newCountT1 >= 5 && newCountT2 >= 5) {
-             await Match.updateStatus(matchId, 'VETO');
-             getIo().to(`match_${matchId}`).emit('veto_update', { status: 'VETO', vetoLog: [] });
+            await Match.updateStatus(matchId, 'VETO');
+            getIo().to(`match_${matchId}`).emit('veto_update', { status: 'VETO', vetoLog: [] });
         }
 
         res.json({ message: "Pick thành công" });
@@ -272,9 +272,9 @@ exports.updateSettings = async (req, res) => {
     try {
         const matchId = req.params.id;
         const userId = req.user.uid;
-        const { 
+        const {
             is_veto_enabled, is_captain_mode, map_result, pre_selected_maps,
-            display_name, team1_name, team2_name, series_type, server_id 
+            display_name, team1_name, team2_name, series_type, server_id
         } = req.body;
 
         const match = await Match.findBasicInfo(matchId);
@@ -289,7 +289,7 @@ exports.updateSettings = async (req, res) => {
         }
 
         const currentSeriesType = series_type || match.series_type;
-        let mapToUpdate = undefined; 
+        let mapToUpdate = undefined;
         let preSelectedMapsToUpdate = undefined;
 
         if (is_veto_enabled === false) {
@@ -301,7 +301,7 @@ exports.updateSettings = async (req, res) => {
             if (maps.length !== requiredMaps) return res.status(400).json({ message: `Vui lòng chọn đúng ${requiredMaps} map` });
 
             preSelectedMapsToUpdate = maps;
-            mapToUpdate = maps[0]; 
+            mapToUpdate = maps[0];
         }
 
         if (server_id) {
@@ -309,15 +309,15 @@ exports.updateSettings = async (req, res) => {
             if (!server) return res.status(404).json({ message: "Server không tồn tại" });
         }
 
-        await Match.updateSettings(matchId, { 
-            is_veto_enabled: is_veto_enabled ? 1 : 0, 
+        await Match.updateSettings(matchId, {
+            is_veto_enabled: is_veto_enabled ? 1 : 0,
             is_captain_mode: is_captain_mode ? 1 : 0,
             map_result: mapToUpdate,
             pre_selected_maps: preSelectedMapsToUpdate,
             display_name, team1_name, team2_name, series_type, server_id
         });
-        
-        const updatedMatch = await Match.findById(matchId); 
+
+        const updatedMatch = await Match.findById(matchId);
         getIo().to(`match_${matchId}`).emit('match_details_update', updatedMatch);
 
         res.json({ message: "Cập nhật cài đặt thành công" });
@@ -349,7 +349,7 @@ exports.getMatchChat = async (req, res) => {
             AND (c.scope = 'GLOBAL' OR c.scope = ?)
             ORDER BY c.created_at ASC
         `;
-        
+
         const [messages] = await pool.execute(sql, [matchId, myTeam || '']);
         res.json(messages);
 
@@ -495,16 +495,14 @@ exports.vetoMap = async (req, res) => {
                 const mapValues = mapsToPlay.map((mapName, index) => [
                     matchId, index + 1, mapName, index === 0 ? 'LIVE' : 'PENDING'
                 ]);
-                
+
                 if (mapValues.length > 0) {
                     await pool.query('INSERT INTO match_maps (match_id, map_number, map_name, status) VALUES ?', [mapValues]);
                 }
 
                 const server = await Server.findById(match.server_id);
                 if (server) {
-                    const protocol = req.protocol;
-                    const host = process.env.LOCAL_IP || 'http://localhost:3000';
-                    const configUrl = `${protocol}://${host}:3000/api/matches/${matchId}/config`;
+                    const configUrl = `http://127.0.0.1:3000/api/matches/${matchId}/config`;
                     sendRconCommand(server, `matchzy_loadmatch_url "${configUrl}"`).catch(console.error);
                 }
             }
@@ -544,7 +542,7 @@ exports.startMatch = async (req, res) => {
 
             await Match.updateStatus(matchId, 'LIVE');
             await pool.execute('DELETE FROM match_maps WHERE match_id = ?', [matchId]);
-            
+
             const mapValues = mapsToPlay.map((mapName, index) => [
                 matchId, index + 1, mapName, index === 0 ? 'LIVE' : 'PENDING'
             ]);
@@ -552,9 +550,7 @@ exports.startMatch = async (req, res) => {
 
             const server = await Server.findById(match.server_id);
             if (server) {
-                const protocol = req.protocol;
-                const host = process.env.LOCAL_IP || 'http://localhost:3000';
-                const configUrl = `${protocol}://${host}:3000/api/matches/${matchId}/config`;
+                const configUrl = `http://127.0.0.1:3000/api/matches/${matchId}/config`;
                 sendRconCommand(server, `matchzy_loadmatch_url "${configUrl}"`).catch(console.error);
             }
 
@@ -587,7 +583,7 @@ exports.cancelMatch = async (req, res) => {
 
         const server = await Server.findById(match.server_id);
         if (server) {
-            try { await sendRconCommand(server, "css_forceend"); } catch (e) {}
+            try { await sendRconCommand(server, "css_forceend"); } catch (e) { }
         }
 
         await Match.updateStatus(matchId, 'CANCELLED');
@@ -645,8 +641,8 @@ exports.getMatchStats = async (req, res) => {
             if (map.last_event_data) {
                 try {
                     const event = (typeof map.last_event_data === 'string') ? JSON.parse(map.last_event_data) : map.last_event_data;
-                    
-                    if (event.event === 'map_end' || event.event === 'map_result') {
+
+                    if (event.event === 'map_end' || event.event === 'map_result' || event.event === 'round_end') {
                         if (event.team1 && event.team1.score !== undefined) map.score_team1 = event.team1.score;
                         if (event.team2 && event.team2.score !== undefined) map.score_team2 = event.team2.score;
                     }
@@ -654,11 +650,12 @@ exports.getMatchStats = async (req, res) => {
                     // ... process players stats (rút gọn cho ngắn) ...
                     // Để code chạy được, ta giữ logic cũ nhưng rút gọn lại
                     if (event.team1 && event.team2 && event.team1.players && event.team2.players) {
-                         // Parse giống cũ
-                         // Tạm thời bỏ qua chi tiết parse sâu để tránh file quá dài, nhưng đảm bảo có mảng playerStats
-                         loadedFromJSON = true;
+                        const t1 = processMatchzyStats(event.team1.players, event.team1.name, event.team1.side);
+                        const t2 = processMatchzyStats(event.team2.players, event.team2.name, event.team2.side);
+                        playerStats = [...t1, ...t2];
+                        loadedFromJSON = true;
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
             return { ...map, player_stats: playerStats };
         }));
