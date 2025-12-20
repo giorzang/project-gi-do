@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, X, Crosshair, Sparkles, Users, Music, Award, Hand, Trash2, Check, Sword } from 'lucide-react';
 import type { Skin, WeaponCategory, SelectedSkin } from '../types/skinTypes';
-import { WEAPON_CATEGORIES, WEAPON_DISPLAY_NAMES, KNIFE_DEFINDEXES, GLOVE_DISPLAY_NAMES } from '../types/skinTypes';
+import { WEAPON_CATEGORIES, WEAPON_DISPLAY_NAMES, KNIFE_DEFINDEXES, GLOVE_DISPLAY_NAMES, KNIFE_NAME_TO_DEFINDEX } from '../types/skinTypes';
 import api from '../services/api';
 
 // Extended types for new categories
@@ -303,9 +303,21 @@ export default function SkinsChanger() {
                 const isKnife = selectedSkin.weapon_defindex >= 500;
 
                 if (isKnife) {
-                    // Save knife type first (using weapon_name), with team from skinSettings
+                    // Find old knife defindex for skin cleanup
+                    const teamNumber = skinSettings.team === 'T' ? 2 : skinSettings.team === 'CT' ? 3 : null;
+                    let oldKnifeDefindex: number | undefined;
+                    if (teamNumber && userPrefs?.knives) {
+                        const oldKnife = userPrefs.knives.find(k => k.weapon_team === teamNumber);
+                        if (oldKnife?.knife) {
+                            oldKnifeDefindex = KNIFE_NAME_TO_DEFINDEX[oldKnife.knife];
+                        }
+                    }
+
+                    // Save knife type first (using weapon_name and defindex), with team from skinSettings
                     await api.post('/api/skins/knife', {
                         knifeName: selectedSkin.weapon_name,
+                        knifeDefindex: selectedSkin.weapon_defindex,
+                        oldKnifeDefindex,
                         team: skinSettings.team
                     });
                 }
@@ -319,9 +331,26 @@ export default function SkinsChanger() {
                     team: skinSettings.team
                 });
             } else if (selectedKnife) {
+                // Find old knife defindex for skin cleanup
+                const teams = knifeTeam === 'BOTH' ? [2, 3] : knifeTeam === 'T' ? [2] : [3];
+                const oldKnifeDefindexes: number[] = [];
+                if (userPrefs?.knives) {
+                    for (const t of teams) {
+                        const oldKnife = userPrefs.knives.find(k => k.weapon_team === t);
+                        if (oldKnife?.knife) {
+                            const defindex = KNIFE_NAME_TO_DEFINDEX[oldKnife.knife];
+                            if (defindex && !oldKnifeDefindexes.includes(defindex)) {
+                                oldKnifeDefindexes.push(defindex);
+                            }
+                        }
+                    }
+                }
+
                 // Save knife type and skin
                 await api.post('/api/skins/knife', {
                     knifeName: selectedKnife.weapon_name,
+                    knifeDefindex: selectedKnife.weapon_defindex,
+                    oldKnifeDefindex: oldKnifeDefindexes[0], // Use first one, backend handles per team
                     team: knifeTeam
                 });
                 await api.post('/api/skins/weapon', {

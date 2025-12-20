@@ -14,8 +14,8 @@ class Match {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const [result] = await pool.execute(sql, [
-            display_name, user_id, server_id, team1_name, team2_name, series_type, 
-            is_veto_enabled || 1, is_captain_mode || 0, map_result, 
+            display_name, user_id, server_id, team1_name, team2_name, series_type,
+            is_veto_enabled || 1, is_captain_mode || 0, map_result,
             JSON.stringify(pre_selected_maps || []),
             tournament_id || null, bracket_round || null, bracket_match_index || null
         ]);
@@ -70,17 +70,17 @@ class Match {
         }
         return match;
     }
-    
+
     /**
      * Lấy thông tin cơ bản của match (dùng cho các check nhanh)
      */
     static async findBasicInfo(id) {
         const sql = 'SELECT * FROM matches WHERE id = ?';
         const [rows] = await pool.execute(sql, [id]);
-        
+
         const match = rows[0];
         if (match && typeof match.pre_selected_maps === 'string') {
-             try { match.pre_selected_maps = JSON.parse(match.pre_selected_maps); } catch (e) { match.pre_selected_maps = []; }
+            try { match.pre_selected_maps = JSON.parse(match.pre_selected_maps); } catch (e) { match.pre_selected_maps = []; }
         }
         return match;
     }
@@ -124,9 +124,14 @@ class Match {
     /**
      * Cập nhật Settings cho Match
      */
-    static async updateSettings(id, { is_veto_enabled, is_captain_mode, map_result, pre_selected_maps, display_name, team1_name, team2_name, series_type, server_id }) {
+    static async updateSettings(id, { is_veto_enabled, is_captain_mode, game_mode, map_result, pre_selected_maps, display_name, team1_name, team2_name, series_type, server_id }) {
         let sql = 'UPDATE matches SET is_veto_enabled = ?, is_captain_mode = ?';
         const params = [is_veto_enabled, is_captain_mode];
+
+        if (game_mode) {
+            sql += ', game_mode = ?';
+            params.push(game_mode);
+        }
 
         if (map_result !== undefined) {
             sql += ', map_result = ?';
@@ -137,7 +142,7 @@ class Match {
             sql += ', pre_selected_maps = ?';
             params.push(JSON.stringify(pre_selected_maps));
         }
-        
+
         if (display_name) { sql += ', display_name = ?'; params.push(display_name); }
         if (team1_name) { sql += ', team1_name = ?'; params.push(team1_name); }
         if (team2_name) { sql += ', team2_name = ?'; params.push(team2_name); }

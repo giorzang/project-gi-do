@@ -108,12 +108,27 @@ class Skin {
 
     /**
      * Set knife type
-     * Delete existing knife for the team first, then insert new one
+     * Delete existing knife and its skins for the team first, then insert new one
+     * @param {string} steamId
+     * @param {string} knifeName - Knife name like "weapon_knife_butterfly"
+     * @param {number} knifeDefindex - New knife defindex (not used for deletion, kept for future use)
+     * @param {number} oldKnifeDefindex - Old knife defindex (from frontend) to delete old skins
+     * @param {string} team - 'BOTH', 'T', or 'CT'
      */
-    static async setKnife(steamId, knifeName, team = 'BOTH') {
+    static async setKnife(steamId, knifeName, knifeDefindex, oldKnifeDefindex, team = 'BOTH') {
         const teams = team === 'BOTH' ? [2, 3] : (team === 'T' ? [2] : [3]);
 
-        // Delete existing knife for the selected team(s) first
+        // 1. Delete old knife skins from wp_player_skins using oldKnifeDefindex from frontend
+        if (oldKnifeDefindex) {
+            for (const t of teams) {
+                await pool.execute(
+                    `DELETE FROM wp_player_skins WHERE steamid = ? AND weapon_defindex = ? AND weapon_team = ?`,
+                    [steamId, oldKnifeDefindex, t]
+                );
+            }
+        }
+
+        // 2. Delete existing knife entries for the selected team(s)
         for (const t of teams) {
             await pool.execute(
                 `DELETE FROM wp_player_knife WHERE steamid = ? AND weapon_team = ?`,
@@ -121,7 +136,7 @@ class Skin {
             );
         }
 
-        // Insert new knife for the selected team(s)
+        // 3. Insert new knife for the selected team(s)
         for (const t of teams) {
             const sql = `
                 INSERT INTO wp_player_knife (steamid, knife, weapon_team)
@@ -183,12 +198,27 @@ class Skin {
 
     /**
      * Set gloves
-     * Delete existing gloves for the team first, then insert new one
+     * Delete existing gloves and their skins for the team first, then insert new one
      */
     static async setGloves(steamId, { weaponDefindex, paintId, team = 'BOTH' }) {
         const teams = team === 'BOTH' ? [2, 3] : (team === 'T' ? [2] : [3]);
 
-        // Delete existing gloves for the selected team(s) first
+        // 1. Get current gloves to find their defindexes for skin cleanup
+        const currentGloves = await this.getUserGloves(steamId);
+
+        // 2. Delete gloves skins from wp_player_skins for the changing team(s)
+        for (const t of teams) {
+            const glovesForTeam = currentGloves.find(g => g.weapon_team === t);
+            if (glovesForTeam && glovesForTeam.weapon_defindex) {
+                // Delete all skins associated with the old gloves defindex
+                await pool.execute(
+                    `DELETE FROM wp_player_skins WHERE steamid = ? AND weapon_defindex = ? AND weapon_team = ?`,
+                    [steamId, glovesForTeam.weapon_defindex, t]
+                );
+            }
+        }
+
+        // 3. Delete existing gloves entries for the selected team(s)
         for (const t of teams) {
             await pool.execute(
                 `DELETE FROM wp_player_gloves WHERE steamid = ? AND weapon_team = ?`,
@@ -196,7 +226,7 @@ class Skin {
             );
         }
 
-        // Insert new gloves for the selected team(s)
+        // 4. Insert new gloves for the selected team(s)
         for (const t of teams) {
             const sql = `
                 INSERT INTO wp_player_gloves (steamid, weapon_defindex, weapon_team)

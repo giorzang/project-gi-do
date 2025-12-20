@@ -54,6 +54,32 @@ export const WEAPON_CATEGORIES: WeaponCategory[] = [
 // Knife defindexes (separated from weapon categories)
 export const KNIFE_DEFINDEXES = [500, 503, 505, 506, 507, 508, 509, 512, 514, 515, 516, 517, 518, 519, 520, 521, 522, 523, 525, 526];
 
+// Knife name to defindex mapping (used to find old knife defindex from database knife name)
+export const KNIFE_NAME_TO_DEFINDEX: Record<string, number> = {
+    'weapon_knife': 500,
+    'weapon_knife_t': 500,
+    'weapon_bayonet': 500,
+    'weapon_knife_css': 503,
+    'weapon_knife_flip': 505,
+    'weapon_knife_gut': 506,
+    'weapon_knife_karambit': 507,
+    'weapon_knife_m9_bayonet': 508,
+    'weapon_knife_tactical': 509,
+    'weapon_knife_falchion': 512,
+    'weapon_knife_survival_bowie': 514,
+    'weapon_knife_butterfly': 515,
+    'weapon_knife_push': 516,
+    'weapon_knife_cord': 517,
+    'weapon_knife_canis': 518,
+    'weapon_knife_ursus': 519,
+    'weapon_knife_gypsy_jackknife': 520,
+    'weapon_knife_outdoor': 521,
+    'weapon_knife_stiletto': 522,
+    'weapon_knife_widowmaker': 523,
+    'weapon_knife_skeleton': 525,
+    'weapon_knife_kukri': 526,
+};
+
 // Weapon name display mapping
 export const WEAPON_DISPLAY_NAMES: Record<string, string> = {
     'weapon_ak47': 'AK-47',

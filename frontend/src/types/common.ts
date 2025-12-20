@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io-client';
 
 export interface User {
-  id: string; 
+  id: string;
   username: string;
   avatar_url: string;
   is_admin: number;
@@ -34,10 +34,11 @@ export interface Match {
   port?: number;
   user_id?: string;
   admin_name?: string;
-  
+
   // Settings & Captain
   is_veto_enabled?: number; // 0 or 1
   is_captain_mode?: number; // 0 or 1
+  game_mode?: 'competitive' | 'wingman'; // 5v5 or 2v2
   captain1_id?: string;
   captain2_id?: string;
   pre_selected_maps?: string[] | null;
@@ -49,11 +50,11 @@ export interface Match {
 
   veto_log: VetoLog[] | null;
   map_result: string | null;
-  
+
   winner_team?: string;
   team1_series_score?: number;
   team2_series_score?: number;
-  
+
   created_at: string;
 }
 
@@ -86,12 +87,12 @@ export interface Post {
 }
 
 export interface MatchContextType {
-    match: Match;
-    participants: Participant[];
-    socket: Socket | null;
-    mapPool: MapData[];
-    isAdmin: boolean;
-    isLocked: boolean;
-    handleJoin: (team: 'TEAM1' | 'TEAM2' | 'SPECTATOR' | 'WAITING') => Promise<void>;
-    handleStartMatch: () => Promise<void>;
+  match: Match;
+  participants: Participant[];
+  socket: Socket | null;
+  mapPool: MapData[];
+  isAdmin: boolean;
+  isLocked: boolean;
+  handleJoin: (team: 'TEAM1' | 'TEAM2' | 'SPECTATOR' | 'WAITING') => Promise<void>;
+  handleStartMatch: () => Promise<void>;
 }

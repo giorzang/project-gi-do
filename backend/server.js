@@ -16,6 +16,7 @@ const tournamentRoutes = require('./routes/tournamentRoutes');
 const postRoutes = require('./routes/postRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const skinRoutes = require('./routes/skinRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const path = require('path'); // Import path module
 
@@ -50,6 +51,7 @@ app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/skins', skinRoutes);
+app.use('/api/admin', adminRoutes);
 
 // --- SERVE FRONTEND (PRODUCTION) ---
 // Phục vụ file tĩnh từ thư mục build của Frontend

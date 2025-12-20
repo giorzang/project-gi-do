@@ -124,6 +124,11 @@ export default function MatchLobby() {
                                         Tham gia
                                     </button>
                                 )}
+                                {mySlot && mySlot.team !== 'WAITING' && match.status !== 'PICKING' && (
+                                    <button onClick={() => handleJoin('WAITING')} className="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-1 rounded">
+                                        Vào Hàng chờ
+                                    </button>
+                                )}
                                 {isAdmin && match.status === 'PENDING' && (
                                     <button onClick={() => setShowSettings(true)} className="bg-slate-700 hover:bg-slate-600 text-slate-300 p-1 rounded" title="Cài đặt trận đấu">
                                         <Settings size={16} />
@@ -309,10 +314,10 @@ export default function MatchLobby() {
                         <h2 className="text-xl font-bold text-orange-500 flex items-center gap-2">
                             <Swords size={20} /> {match.team1_name}
                         </h2>
-                        <p className="text-xs text-slate-500">{team1Players.length}/5</p>
+                        <p className="text-xs text-slate-500">{team1Players.length}/{match.game_mode === 'wingman' ? 2 : 5}</p>
                     </div>
                     <div className="space-y-2">
-                        {[...Array(5)].map((_, i) => (
+                        {[...Array(match.game_mode === 'wingman' ? 2 : 5)].map((_, i) => (
                             <PlayerSlot
                                 key={i}
                                 player={team1Players[i]}
@@ -333,10 +338,10 @@ export default function MatchLobby() {
                         <h2 className="text-xl font-bold text-blue-500 flex items-center gap-2 justify-end">
                             {match.team2_name} <Shield size={20} />
                         </h2>
-                        <p className="text-xs text-slate-500">{team2Players.length}/5</p>
+                        <p className="text-xs text-slate-500">{team2Players.length}/{match.game_mode === 'wingman' ? 2 : 5}</p>
                     </div>
                     <div className="space-y-2">
-                        {[...Array(5)].map((_, i) => (
+                        {[...Array(match.game_mode === 'wingman' ? 2 : 5)].map((_, i) => (
                             <PlayerSlot
                                 key={i}
                                 player={team2Players[i]}

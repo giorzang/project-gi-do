@@ -72,13 +72,13 @@ const deleteSkin = async (req, res) => {
 const setKnife = async (req, res) => {
     try {
         const steamId = req.user.uid;
-        const { knifeName, team } = req.body;
+        const { knifeName, knifeDefindex, oldKnifeDefindex, team } = req.body;
 
-        if (!knifeName) {
-            return res.status(400).json({ success: false, message: 'Missing knife name' });
+        if (!knifeName || !knifeDefindex) {
+            return res.status(400).json({ success: false, message: 'Missing knife name or defindex' });
         }
 
-        await Skin.setKnife(steamId, knifeName, team || 'BOTH');
+        await Skin.setKnife(steamId, knifeName, knifeDefindex, oldKnifeDefindex, team || 'BOTH');
         res.json({ success: true, message: 'Knife applied successfully' });
     } catch (error) {
         console.error('Error setting knife:', error);

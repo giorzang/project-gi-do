@@ -129,9 +129,10 @@ exports.joinSlot = async (req, res) => {
             if (match.status === 'PICKING') {
                 return res.status(403).json({ message: "Đang trong giai đoạn Pick người, bạn không thể tự vào team!" });
             }
+            const maxTeamSize = match.game_mode === 'wingman' ? 2 : 5;
             const count = await MatchParticipant.countByTeam(matchId, team);
-            if (count >= 5) {
-                return res.status(400).json({ message: "Team này đã đủ 5 người!" });
+            if (count >= maxTeamSize) {
+                return res.status(400).json({ message: `Team này đã đủ ${maxTeamSize} người!` });
             }
         }
 
@@ -273,7 +274,7 @@ exports.updateSettings = async (req, res) => {
         const matchId = req.params.id;
         const userId = req.user.uid;
         const {
-            is_veto_enabled, is_captain_mode, map_result, pre_selected_maps,
+            is_veto_enabled, is_captain_mode, game_mode, map_result, pre_selected_maps,
             display_name, team1_name, team2_name, series_type, server_id
         } = req.body;
 
@@ -312,6 +313,7 @@ exports.updateSettings = async (req, res) => {
         await Match.updateSettings(matchId, {
             is_veto_enabled: is_veto_enabled ? 1 : 0,
             is_captain_mode: is_captain_mode ? 1 : 0,
+            game_mode: game_mode,
             map_result: mapToUpdate,
             pre_selected_maps: preSelectedMapsToUpdate,
             display_name, team1_name, team2_name, series_type, server_id
@@ -360,7 +362,8 @@ exports.getMatchChat = async (req, res) => {
 };
 
 // Veto Logic Helper
-const calculateState = (vetoLog, seriesType) => {
+// gameMode: 'competitive' (7 maps) or 'wingman' (5 maps)
+const calculateState = (vetoLog, seriesType, gameMode = 'competitive') => {
     const mapActions = vetoLog.filter(l => l.action === 'BAN' || l.action === 'PICK');
     const lastAction = vetoLog[vetoLog.length - 1];
 
@@ -371,6 +374,26 @@ const calculateState = (vetoLog, seriesType) => {
 
     const turnIndex = mapActions.length;
 
+    // WINGMAN (5 maps) - chỉ hỗ trợ BO1, BO3
+    if (gameMode === 'wingman') {
+        if (seriesType === 'BO1') {
+            // 5 maps: BAN -> BAN -> BAN -> BAN -> map cuối còn lại
+            if (turnIndex >= 4) return { turn: 'FINISHED', type: 'NONE' };
+            return { turn: turnIndex % 2 === 0 ? 'TEAM1' : 'TEAM2', type: 'BAN' };
+        }
+        if (seriesType === 'BO3') {
+            // 5 maps: BAN -> PICK -> PICK -> BAN -> map cuối là decider
+            if (turnIndex >= 4) return { turn: 'FINISHED', type: 'NONE' };
+            const team = turnIndex % 2 === 0 ? 'TEAM1' : 'TEAM2';
+            if (turnIndex === 0) return { turn: team, type: 'BAN' };  // BAN
+            if (turnIndex < 3) return { turn: team, type: 'PICK' };   // PICK, PICK
+            return { turn: team, type: 'BAN' };                       // BAN
+        }
+        // Wingman không có BO5
+        return { turn: 'TEAM1', type: 'BAN' };
+    }
+
+    // COMPETITIVE (7 maps)
     if (seriesType === 'BO1') {
         if (turnIndex >= 6) return { turn: 'FINISHED', type: 'NONE' };
         return { turn: turnIndex % 2 === 0 ? 'TEAM1' : 'TEAM2', type: 'BAN' };
@@ -393,10 +416,18 @@ const calculateState = (vetoLog, seriesType) => {
     return { turn: 'TEAM1', type: 'BAN' };
 };
 
-// API: Lấy danh sách Map Active
+// API: Lấy danh sách Map Active (theo game_mode nếu có)
 exports.getMapPool = async (req, res) => {
     try {
-        const maps = await Map.findActive();
+        const { game_mode } = req.query;
+
+        let maps;
+        if (game_mode && (game_mode === 'competitive' || game_mode === 'wingman')) {
+            maps = await Map.findActiveByGameMode(game_mode);
+        } else {
+            maps = await Map.findActive();
+        }
+
         res.json(maps);
     } catch (error) {
         res.status(500).json({ message: "Lỗi lấy Map Pool" });
@@ -442,7 +473,8 @@ exports.vetoMap = async (req, res) => {
 
         if (match.status === 'FINISHED') return res.status(400).json({ message: "Ended" });
 
-        const state = calculateState(vetoLog, match.series_type);
+        const gameMode = match.game_mode || 'competitive';
+        const state = calculateState(vetoLog, match.series_type, gameMode);
         if (state.turn === 'FINISHED') return res.status(400).json({ message: "Veto finished" });
 
         const participant = await MatchParticipant.findOne(matchId, userId);
@@ -460,7 +492,8 @@ exports.vetoMap = async (req, res) => {
         else {
             if (!mapName) return res.status(400).json({ message: "Vui lòng chọn Map" });
 
-            const activePool = (await Map.findActive()).map(m => m.map_key);
+            // Lấy map pool theo game_mode (competitive/wingman)
+            const activePool = (await Map.findActiveByGameMode(gameMode)).map(m => m.map_key);
             if (!activePool.includes(mapName)) return res.status(400).json({ message: "Map invalid" });
 
             if (vetoLog.some(l => l.map === mapName && (l.action === 'BAN' || l.action === 'PICK'))) {
@@ -472,7 +505,7 @@ exports.vetoMap = async (req, res) => {
 
         await Match.updateVetoLog(matchId, vetoLog, 'VETO');
 
-        const nextState = calculateState(vetoLog, match.series_type);
+        const nextState = calculateState(vetoLog, match.series_type, gameMode);
         let finalMap = null;
         let matchResultStatus = 'VETO';
 
@@ -481,7 +514,8 @@ exports.vetoMap = async (req, res) => {
 
             const mapActions = vetoLog.filter(l => l.action === 'BAN' || l.action === 'PICK');
             const usedMaps = mapActions.map(l => l.map);
-            const fullPool = (await Map.findActive()).map(m => m.map_key);
+            // Lấy đúng pool theo game_mode
+            const fullPool = (await Map.findActiveByGameMode(gameMode)).map(m => m.map_key);
             finalMap = fullPool.find(m => !usedMaps.includes(m));
 
             if (finalMap) {
@@ -512,6 +546,7 @@ exports.vetoMap = async (req, res) => {
         getIo().to(`match_${matchId}`).emit('veto_update', updateData);
 
         res.json({ message: "Success", data: updateData });
+
 
     } catch (error) {
         console.error(error);

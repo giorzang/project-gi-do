@@ -49,6 +49,19 @@ exports.generateMatchzyJSON = (match, participants, vetoLog, finalMap) => {
     // C. Cấu trúc JSON hoàn chỉnh
     const numMaps = match.series_type === 'BO1' ? 1 : (match.series_type === 'BO3' ? 3 : 5);
 
+    // D. Xử lý game_mode (competitive = 5v5, wingman = 2v2)
+    const isWingman = match.game_mode === 'wingman';
+
+    // Build cvars object
+    const cvars = {
+        "matchzy_remote_log_url": `http://127.0.0.1:3000/api/matchzy/event`
+    };
+
+    // Wingman mode: game_mode = 2
+    if (isWingman) {
+        cvars["game_mode"] = "2";
+    }
+
     return {
         matchid: match.id,
         team1: {
@@ -65,14 +78,8 @@ exports.generateMatchzyJSON = (match, participants, vetoLog, finalMap) => {
         spectators: {
             players: spectators
         },
-        clinch_series: true, // Có cho phép thắng sớm không (VD: BO3 thắng 2-0 là nghỉ)
-        // players_per_team: 5,
-        // min_players_to_ready: 1, // Để test thì để 1, thực tế nên là 5
-        cvars: {
-            "matchzy_remote_log_url": `http://127.0.0.1:3000/api/matchzy/event`,
-            //     "get5_check_auths": "1", // Bắt buộc check steamid
-            //     "mp_overtime_enable": "1"
-        }
+        clinch_series: true,
+        cvars: cvars
     };
 };
 

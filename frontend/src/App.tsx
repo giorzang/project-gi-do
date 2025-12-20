@@ -11,6 +11,7 @@ import MatchLayout from './components/match/MatchLayout';
 import MatchLobby from './components/match/MatchLobby';
 import MatchMapStats from './components/match/MatchMapStats';
 import SkinsChanger from './pages/SkinsChanger';
+import AdminDashboard from './pages/AdminDashboard';
 import api from './services/api';
 
 function App() {
@@ -141,6 +142,8 @@ function App() {
           <Route index element={<MatchLobby />} />
           <Route path=":mapnumber" element={<MatchMapStats />} />
         </Route>
+
+        <Route path="/admin" element={<AdminDashboard />} />
       </Routes>
     </div>
   );
